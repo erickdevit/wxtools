@@ -1,21 +1,19 @@
-# Instalador de Ferramentas - Chatwoot
+# WXTOOLS - Instalador Modular de Infraestrutura e Aplicações
 
-Este projeto tem como objetivo facilitar a instalação e configuração do Chatwoot utilizando um script automatizado e interativo. O instalador foi pensado para ser simples, seguro e adaptável, permitindo que qualquer pessoa consiga subir uma instância do Chatwoot rapidamente, mesmo sem experiência prévia com Docker ou configurações avançadas.
+Este projeto tem como objetivo facilitar a instalação e configuração de serviços e aplicações Docker de forma **modular** e interativa. Cada serviço possui seu próprio arquivo compose, criado sob demanda, tornando o gerenciamento mais limpo, flexível e escalável.
 
-## O que é Chatwoot?
-O Chatwoot é uma plataforma de atendimento multicanal open source, que permite centralizar conversas de diferentes canais (WhatsApp, Facebook, e-mail, etc) em um só lugar.
+## O que é WXTOOLS?
+WXTOOLS é uma suíte de automação para infraestrutura Docker, que permite instalar, ativar, parar e gerenciar serviços como Redis, PostgreSQL, MinIO, Traefik, Portainer, Chatwoot, n8n e outros, tudo via menu interativo.
 
-## Sobre o Instalador
-Este repositório contém um script chamado `chatwoot.sh` que automatiza:
-- Criação dos arquivos de configuração necessários (`.env` e `docker-compose.yaml`)
-- Geração de chaves de segurança
-- Configuração de variáveis essenciais
-- Inicialização dos containers Docker
-
-O script pode ser facilmente adaptado para servir de base para instaladores de outras ferramentas que utilizem Docker.
+## Como funciona a modularidade?
+- **Cada serviço/aplicação tem seu próprio arquivo compose** (ex: `redis.yaml`, `postgres.yaml`, etc).
+- **Os arquivos só são criados quando o serviço é ativado pela primeira vez** pelo menu.
+- O arquivo `.env` é criado no setup inicial e compartilhado entre todos os serviços.
+- Não existe mais um `docker-compose.yaml` único.
+- O status, ativação e parada são feitos individualmente para cada serviço.
 
 ## Requisitos
-- Docker e Docker Compose instalados
+- Docker e Docker Compose instalados (Linux, macOS, WSL ou ambiente compatível)
 - Bash (Linux, macOS ou WSL no Windows)
 
 ## Como usar
@@ -26,30 +24,40 @@ O script pode ser facilmente adaptado para servir de base para instaladores de o
    ```
 2. Dê permissão de execução ao script:
    ```bash
-   chmod +x chatwoot.sh
+   chmod +x wxtools.sh
    ```
 3. Execute o instalador:
    ```bash
-   ./chatwoot.sh
+   sudo ./wxtools.sh
    ```
-4. Siga as instruções interativas na tela para configurar domínio, imagem Docker, SMTP e outras opções.
+4. Siga o menu interativo para ativar/parar serviços conforme sua necessidade.
+   - Ao ativar um serviço pela primeira vez, o compose correspondente será criado automaticamente.
+   - O arquivo `.env` será criado no primeiro uso.
 
 ## O que o script faz?
-- Cria um arquivo `docker-compose.yaml` pronto para uso, com as imagens corretas do Chatwoot, Postgres e Redis
-- Gera um arquivo `.env` com as variáveis de ambiente necessárias
-- Permite customizar a imagem Docker utilizada
-- (Opcional) Configura o envio de e-mails via SMTP
-- Sobe todos os serviços automaticamente com Docker Compose
+- Cria um arquivo `.env` com variáveis e senhas seguras.
+- Gera arquivos compose separados para cada serviço/aplicação, sob demanda.
+- Permite ativar/parar cada serviço individualmente pelo menu.
+- Exibe o status de todos os serviços de forma modular.
+- Facilita a expansão: para adicionar um novo serviço, basta criar uma função de setup e adicionar ao menu.
 
-## Personalização
-Você pode adaptar o script para instalar outras ferramentas, bastando alterar o bloco de criação do `docker-compose.yaml` e as variáveis de ambiente conforme a necessidade do seu projeto.
+## Exemplo de fluxo
+- Ativar Redis: cria `redis.yaml` (se não existir) e sobe o serviço.
+- Ativar PostgreSQL: cria `postgres.yaml` (se não existir) e sobe o serviço.
+- Parar Redis: derruba apenas o container Redis.
+- Ver status: mostra o status de cada serviço individualmente.
 
 ## Segurança
-O script não sobrescreve arquivos `.env` ou `docker-compose.yaml` já existentes, evitando perda de configurações anteriores.
+- O script não sobrescreve arquivos `.env` ou compose já existentes sem confirmação.
+- Senhas e variáveis sensíveis são geradas automaticamente.
+
+## Personalização
+- Para adicionar novos serviços, siga o padrão das funções de setup no script.
+- Os arquivos compose são simples e podem ser editados conforme sua necessidade.
 
 ## Suporte
 Para dúvidas ou sugestões, abra uma issue ou envie um pull request.
 
 ---
 
-**Desenvolvido para facilitar a vida de quem precisa instalar ferramentas rapidamente!** 
+**WXTOOLS: Modularidade, praticidade e automação para sua infraestrutura Docker!** 
