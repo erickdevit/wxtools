@@ -1,0 +1,43 @@
+services:
+  chatwoot-init:
+    image: erickwornex/chatwoot_custom
+    command: ["sh", "-c", "bundle exec rails db:chatwoot_prepare; bundle exec rails db:seed"]
+    depends_on:
+      - postgres
+      - redis
+    env_file: .env
+    networks:
+      - rede_publica
+    restart: "no"
+  chatwoot-app:
+    image: erickwornex/chatwoot_custom
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+    restart: always
+    depends_on:
+      - chatwoot-init
+    env_file: .env
+    volumes:
+      - chatwoot_storage:/app/storage
+    networks:
+      - rede_publica
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chatwoot.rule=Host(${CHATWOOT_DOMAIN})"
+      - "traefik.http.routers.chatwoot.entrypoints=websecure"
+      - "traefik.http.routers.chatwoot.tls.certresolver=letsencrypt"
+      - "traefik.http.services.chatwoot.loadbalancer.server.port=3000"
+  chatwoot-sidekiq:
+    image: erickwornex/chatwoot_custom
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    restart: always
+    depends_on:
+      - chatwoot-init
+    env_file: .env
+    volumes:
+      - chatwoot_storage:/app/storage
+    networks:
+      - rede_publica
+volumes:
+  chatwoot_storage:
+networks:
+  rede_publica:

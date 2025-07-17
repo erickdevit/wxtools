@@ -28,18 +28,22 @@ WXTOOLS é uma suíte de automação para infraestrutura Docker, que permite ins
    ```
 3. Execute o instalador:
    ```bash
-   sudo ./wxtools.sh
+   ./wxtools.sh
    ```
+   O script solicitará a senha de superusuário (sudo) apenas quando for necessário para instalar pacotes ou gerenciar o Docker.
 4. Siga o menu interativo para ativar/parar serviços conforme sua necessidade.
-   - Ao ativar um serviço pela primeira vez, o compose correspondente será criado automaticamente.
+   - Ao ativar um serviço pela primeira vez, o compose correspondente será criado automaticamente no diretório `compose/`.
    - O arquivo `.env` será criado no primeiro uso.
 
 ## O que o script faz?
-- Cria um arquivo `.env` com variáveis e senhas seguras.
-- Gera arquivos compose separados para cada serviço/aplicação, sob demanda.
-- Permite ativar/parar cada serviço individualmente pelo menu.
-- Exibe o status de todos os serviços de forma modular.
-- Facilita a expansão: para adicionar um novo serviço, basta criar uma função de setup e adicionar ao menu.
+- **Gerenciamento de Dependências:** Instala automaticamente as dependências do sistema (como `htpasswd`, `openssl`, etc.) e gerencia as dependências entre os serviços (por exemplo, inicia o PostgreSQL e o Redis antes de iniciar o Chatwoot).
+- **Criação de Arquivos de Configuração:** Cria um arquivo `.env` com variáveis e senhas seguras e gera arquivos compose separados para cada serviço/aplicação no diretório `compose/`.
+- **Gerenciamento de Serviços:** Permite ativar/parar cada serviço individualmente pelo menu e exibe o status de todos os serviços de forma modular.
+- **Flexibilidade:** Facilita a expansão para adicionar novos serviços.
+- **Segurança:** Não requer a execução do script inteiro como root e não sobrescreve arquivos `.env` ou compose já existentes sem confirmação.
+
+## Serviços e Imagens
+- **Chatwoot:** Utiliza a imagem customizada `erickwornex/chatwoot_custom`.
 
 ## Exemplo de fluxo
 - Ativar Redis: cria `redis.yaml` (se não existir) e sobe o serviço.

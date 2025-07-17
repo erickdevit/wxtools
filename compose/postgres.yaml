@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: postgres_shared
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: main_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - rede_publica
+volumes:
+  postgres_data:
+networks:
+  rede_publica:

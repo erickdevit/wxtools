@@ -1,0 +1,32 @@
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: always
+    environment:
+      - N8N_HOST=${N8N_DOMAIN}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - NODE_ENV=production
+      - WEBHOOK_URL=https://${N8N_DOMAIN}/
+      - GENERIC_TIMEZONE=${N8N_TIMEZONE}
+      - POSTGRES_DATABASE=${POSTGRES_DB_N8N}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=postgres_shared
+      - POSTGRES_PORT=5432
+      - DB_TYPE=postgres
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - rede_publica
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.rule=Host(${N8N_DOMAIN})"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+volumes:
+  n8n_data:
+networks:
+  rede_publica:

@@ -7,11 +7,22 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # Sem Cor
 ENV_FILE=".env"
-COMPOSE_FILE="docker-compose.yaml"
+COMPOSE_DIR="compose"
+SERVICES=("traefik" "portainer" "postgres" "redis" "minio" "chatwoot" "n8n")
+declare -A SERVICE_DEPENDENCIES=(
+    ["chatwoot"]="postgres redis"
+    ["n8n"]="postgres"
+)
+
+# --- Funções de Utilidade ---
+error_exit() {
+    echo -e "${RED}ERRO: $1${NC}" >&2
+    exit 1
+}
 
 # --- Função para checar comandos essenciais ---
 check_command() {
-    command -v "$1" &>/dev/null || { echo -e "${RED}Comando '$1' não encontrado. Instale antes de continuar.${NC}"; exit 1; }
+    command -v "$1" &>/dev/null || error_exit "Comando '$1' não encontrado. Instale antes de continuar."
 }
 
 # Checa comandos essenciais no início do script
@@ -21,12 +32,18 @@ done
 
 # --- Funções de Detecção e Instalação de Pacotes (Agnósticas de OS) ---
 detect_os() {
-    if [ -f /etc/os-release ]; then . /etc/os-release; OS=$NAME; ID_LIKE=${ID_LIKE:-$ID}; else echo -e "${RED}Não foi possível detectar o sistema operacional.${NC}"; exit 1; fi
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$NAME
+        ID_LIKE=${ID_LIKE:-$ID}
+    else
+        error_exit "Não foi possível detectar o sistema operacional."
+    fi
     case "$ID_LIKE" in
         debian|ubuntu) PKG_MANAGER="apt-get"; UPDATE_CMD="apt-get update -y"; INSTALL_CMD="apt-get install -y"; DEPS_PACKAGES=("apache2-utils" "openssl" "ca-certificates" "curl" "gnupg"); ;;
         fedora|rhel|centos) if command -v dnf &>/dev/null; then PKG_MANAGER="dnf"; else PKG_MANAGER="yum"; fi; UPDATE_CMD="$PKG_MANAGER check-update"; INSTALL_CMD="$PKG_MANAGER install -y"; DEPS_PACKAGES=("httpd-tools" "openssl" "ca-certificates" "curl" "gnupg"); ;;
         arch) PKG_MANAGER="pacman"; UPDATE_CMD="pacman -Syu --noconfirm"; INSTALL_CMD="pacman -S --noconfirm"; DEPS_PACKAGES=("apache" "openssl" "ca-certificates" "curl" "gnupg"); ;;
-        *) echo -e "${RED}Distribuição Linux não suportada: '$OS'.${NC}"; exit 1; ;;
+        *) error_exit "Distribuição Linux não suportada: '$OS'." ;;
     esac
 }
 
@@ -46,7 +63,7 @@ install_packages() {
     done
     if [ ${#NEEDS_INSTALL[@]} -gt 0 ]; then
         echo -e "${YELLOW}Instalando dependências: ${NEEDS_INSTALL[*]}${NC}"
-        $UPDATE_CMD && $INSTALL_CMD "${NEEDS_INSTALL[@]}" || { echo -e "${RED}Falha ao instalar dependências!${NC}"; exit 1; }
+        sudo $UPDATE_CMD && sudo $INSTALL_CMD "${NEEDS_INSTALL[@]}" || error_exit "Falha ao instalar dependências!"
     else
         echo -e "${GREEN}✅ Todas as dependências já estão satisfeitas.${NC}"
     fi
@@ -79,8 +96,8 @@ EOT
 
 # --- Funções de criação dos arquivos compose de cada serviço ---
 setup_redis_compose() {
-    if [ -f "redis.yaml" ]; then return; fi
-    cat <<EOT > redis.yaml
+    if [ -f "compose/redis.yaml" ]; then return; fi
+    cat <<EOT > compose/redis.yaml
 services:
   redis:
     image: redis:7-alpine
@@ -99,8 +116,8 @@ EOT
 }
 
 setup_postgres_compose() {
-    if [ -f "postgres.yaml" ]; then return; fi
-    cat <<EOT > postgres.yaml
+    if [ -f "compose/postgres.yaml" ]; then return; fi
+    cat <<EOT > compose/postgres.yaml
 services:
   postgres:
     image: ankane/pgvector:latest
@@ -122,8 +139,8 @@ EOT
 }
 
 setup_minio_compose() {
-    if [ -f "minio.yaml" ]; then return; fi
-    cat <<EOT > minio.yaml
+    if [ -f "compose/minio.yaml" ]; then return; fi
+    cat <<EOT > compose/minio.yaml
 services:
   minio:
     image: minio/minio:latest
@@ -145,8 +162,8 @@ EOT
 }
 
 setup_traefik_compose() {
-    if [ -f "traefik.yaml" ]; then return; fi
-    cat <<EOT > traefik.yaml
+    if [ -f "compose/traefik.yaml" ]; then return; fi
+    cat <<EOT > compose/traefik.yaml
 services:
   traefik:
     image: traefik:v2.10
@@ -175,8 +192,8 @@ EOT
 }
 
 setup_portainer_compose() {
-    if [ -f "portainer.yaml" ]; then return; fi
-    cat <<EOT > portainer.yaml
+    if [ -f "compose/portainer.yaml" ]; then return; fi
+    cat <<EOT > compose/portainer.yaml
 services:
   portainer:
     image: portainer/portainer-ce:latest
@@ -201,8 +218,8 @@ EOT
 }
 
 setup_chatwoot_compose() {
-    if [ -f "chatwoot.yaml" ]; then return; fi
-    cat <<EOT > chatwoot.yaml
+    if [ -f "compose/chatwoot.yaml" ]; then return; fi
+    cat <<EOT > compose/chatwoot.yaml
 services:
   chatwoot-init:
     image: chatwoot/chatwoot:latest
@@ -250,8 +267,8 @@ EOT
 }
 
 setup_n8n_compose() {
-    if [ -f "n8n.yaml" ]; then return; fi
-    cat <<EOT > n8n.yaml
+    if [ -f "compose/n8n.yaml" ]; then return; fi
+    cat <<EOT > compose/n8n.yaml
 services:
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
@@ -288,28 +305,60 @@ EOT
 }
 
 # --- Funções para ativar/parar cada serviço, criando compose se necessário ---
-activate_service_compose() {
+start_service() {
     local svc="$1"
+
+    # Inicia as dependências primeiro
+    if [ -n "${SERVICE_DEPENDENCIES[$svc]}" ]; then
+        for dep in ${SERVICE_DEPENDENCIES[$svc]}; do
+            echo -e "${BLUE}Iniciando dependência '$dep' para '$svc'...${NC}"
+            start_service "$dep"
+        done
+    fi
+
     local setup_func="setup_${svc}_compose"
-    if [ ! -f "${svc}.yaml" ]; then
+    local compose_file="$COMPOSE_DIR/$svc.yaml"
+
+    if [ ! -f "$compose_file" ]; then
         $setup_func
     fi
-    # Remove rede_publica se existir para evitar conflitos de labels
-    if docker network ls | grep -q 'rede_publica'; then
-        docker network rm rede_publica >/dev/null 2>&1
+
+    # Verifica se o serviço já está rodando
+    if sudo docker-compose -f "$compose_file" ps | grep -q "Up"; then
+        echo -e "${GREEN}✅ Serviço ${svc} já está em execução.${NC}"
+        return
     fi
-    docker-compose -f "${svc}.yaml" up -d || { echo -e "${RED}Falha ao iniciar o serviço ${svc}!${NC}"; docker-compose -f "${svc}.yaml" logs; return 1; }
+
+    echo -e "${BLUE}Iniciando o serviço ${svc}...${NC}"
+    sudo docker-compose -f "$compose_file" up -d || {
+        sudo docker-compose -f "$compose_file" logs
+        error_exit "Falha ao iniciar o serviço ${svc}!"
+    }
     echo -e "${GREEN}✅ Serviço ${svc} ativado e iniciado!${NC}"
 }
 
-stop_service_compose() {
+stop_service() {
     local svc="$1"
-    if [ ! -f "${svc}.yaml" ]; then
+    local compose_file="compose/${svc}.yaml"
+    if [ ! -f "$compose_file" ]; then
         echo -e "${YELLOW}O compose de ${svc} ainda não existe.${NC}"
         return
     fi
-    docker-compose -f "${svc}.yaml" down
+    sudo docker-compose -f "$compose_file" down
     echo -e "${GREEN}Serviço ${svc} parado.${NC}"
+}
+
+show_status() {
+    echo -e "${BLUE}--- Status Atual dos Serviços ---${NC}"
+    for svc in "${SERVICES[@]}"; do
+        echo -e "\n${YELLOW}Status de $svc:${NC}"
+        local compose_file="$COMPOSE_DIR/$svc.yaml"
+        if [ -f "$compose_file" ]; then
+            sudo docker-compose -f "$compose_file" ps
+        else
+            echo "Serviço não configurado."
+        fi
+    done
 }
 
 # --- Menu Principal ---
@@ -343,8 +392,8 @@ main_menu() {
                 echo -e "${YELLOW}1) Ativar Traefik\n2) Parar Traefik${NC}"
                 read -p "Escolha: " opt
                 case "$opt" in
-                    1) activate_service_compose traefik ;;
-                    2) stop_service_compose traefik ;;
+                    1) start_service traefik ;;
+                    2) stop_service traefik ;;
                     *) echo -e "${RED}Opção inválida!${NC}"; sleep 1 ;;
                 esac
                 ;;
@@ -352,8 +401,8 @@ main_menu() {
                 echo -e "${YELLOW}1) Ativar Portainer\n2) Parar Portainer${NC}"
                 read -p "Escolha: " opt
                 case "$opt" in
-                    1) activate_service_compose portainer ;;
-                    2) stop_service_compose portainer ;;
+                    1) start_service portainer ;;
+                    2) stop_service portainer ;;
                     *) echo -e "${RED}Opção inválida!${NC}"; sleep 1 ;;
                 esac
                 ;;
@@ -361,8 +410,8 @@ main_menu() {
                 echo -e "${YELLOW}1) Ativar PostgreSQL\n2) Parar PostgreSQL${NC}"
                 read -p "Escolha: " opt
                 case "$opt" in
-                    1) activate_service_compose postgres ;;
-                    2) stop_service_compose postgres ;;
+                    1) start_service postgres ;;
+                    2) stop_service postgres ;;
                     *) echo -e "${RED}Opção inválida!${NC}"; sleep 1 ;;
                 esac
                 ;;
@@ -370,8 +419,8 @@ main_menu() {
                 echo -e "${YELLOW}1) Ativar Redis\n2) Parar Redis${NC}"
                 read -p "Escolha: " opt
                 case "$opt" in
-                    1) activate_service_compose redis ;;
-                    2) stop_service_compose redis ;;
+                    1) start_service redis ;;
+                    2) stop_service redis ;;
                     *) echo -e "${RED}Opção inválida!${NC}"; sleep 1 ;;
                 esac
                 ;;
@@ -379,8 +428,8 @@ main_menu() {
                 echo -e "${YELLOW}1) Ativar MinIO\n2) Parar MinIO${NC}"
                 read -p "Escolha: " opt
                 case "$opt" in
-                    1) activate_service_compose minio ;;
-                    2) stop_service_compose minio ;;
+                    1) start_service minio ;;
+                    2) stop_service minio ;;
                     *) echo -e "${RED}Opção inválida!${NC}"; sleep 1 ;;
                 esac
                 ;;
@@ -388,8 +437,8 @@ main_menu() {
                 echo -e "${YELLOW}1) Ativar Chatwoot\n2) Parar Chatwoot${NC}"
                 read -p "Escolha: " opt
                 case "$opt" in
-                    1) activate_service_compose chatwoot ;;
-                    2) stop_service_compose chatwoot ;;
+                    1) start_service chatwoot ;;
+                    2) stop_service chatwoot ;;
                     *) echo -e "${RED}Opção inválida!${NC}"; sleep 1 ;;
                 esac
                 ;;
@@ -397,17 +446,13 @@ main_menu() {
                 echo -e "${YELLOW}1) Ativar n8n\n2) Parar n8n${NC}"
                 read -p "Escolha: " opt
                 case "$opt" in
-                    1) activate_service_compose n8n ;;
-                    2) stop_service_compose n8n ;;
+                    1) start_service n8n ;;
+                    2) stop_service n8n ;;
                     *) echo -e "${RED}Opção inválida!${NC}"; sleep 1 ;;
                 esac
                 ;;
             9)
-                echo -e "${BLUE}--- Status Atual dos Serviços ---${NC}"
-                for svc in traefik portainer postgres redis minio chatwoot n8n; do
-                    echo -e "\n${YELLOW}Status de $svc:${NC}"
-                    docker-compose -f "$svc.yaml" ps
-                done
+                show_status
                 ;;
             0|q|Q) exit 0 ;;
             *) echo -e "${RED}Opção inválida!${NC}"; sleep 1 ;;
@@ -417,16 +462,11 @@ main_menu() {
 }
 
 # --- Ponto de Entrada do Script ---
-# 1. Verifica se é root
-if [ "$(id -u)" != "0" ]; then
-   echo -e "${RED}Este script precisa de privilégios de root. Use: sudo ./wxtools.sh${NC}" 1>&2
-   exit 1
-fi
-# 2. Detecta o OS
+# 1. Detecta o OS
 detect_os
-# 3. Instala dependências do host
+# 2. Instala dependências do host
 install_packages "${DEPS_PACKAGES[@]}"
-# 4. Cria os arquivos de template se não existirem
+# 3. Cria os arquivos de template se não existirem
 initial_setup
-# 5. Mostra o menu principal
+# 4. Mostra o menu principal
 main_menu
